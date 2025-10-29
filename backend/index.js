@@ -1,26 +1,39 @@
 require('dotenv').config();
 const express = require('express');
-const connectDB = require('./config/db');
 const cors = require('cors');
-const morgan = require('morgan');
+const mongoose = require('mongoose');
+const path = require('path');
 
 const app = express();
 
-// connect to MongoDB
-connectDB();
-
-// middleware
-app.use(cors()); // for dev you can allow all origins; lock down in prod
+// Middlewares
+app.use(cors());
 app.use(express.json());
-app.use(morgan('dev'));
 
-// routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/posts', require('./routes/posts'));
+// Connect to MongoDB
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/linkedinclone';
+mongoose
+  .connect(MONGO_URI)
+  .then(() => console.log('MongoDB connected'))
+  .catch((err) => {
+    console.error('MongoDB connection error:', err.message || err);
+    process.exit(1);
+  });
 
-// basic health route
+// Routes
+// Require routers (ensure these files exist)
+const authRouter = require('./routes/auth'); // your existing auth router
+const postsRouter = require('./routes/posts');
+
+app.use('/api/auth', authRouter);
+app.use('/api/posts', postsRouter);
+
+// Basic health route
 app.get('/', (req, res) => res.send('API running'));
 
-// start
+// Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log('=> Your service is live 🎉');
+});
