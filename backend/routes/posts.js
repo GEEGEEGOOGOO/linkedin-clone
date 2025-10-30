@@ -1,35 +1,32 @@
+// backend/routes/posts.js
 const express = require('express');
 const router = express.Router();
 const Post = require('../models/Post');
-const auth = require('../middleware/authMiddleware');
 const User = require('../models/User');
+const auth = require('../middleware/authMiddleware');
 
-// Create a post (protected)
+// Create post
 router.post('/', auth, async (req, res) => {
   try {
     const { text, imageUrl } = req.body;
-    if (!text && !imageUrl) {
-      return res.status(400).json({ message: 'Post text or image required' });
-    }
-    const post = new Post({
-      user: req.user._id,
-      text: text || '',
-      imageUrl: imageUrl || null,
-    });
+    const post = new Post({ user: req.user._id, text, imageUrl });
     await post.save();
-    const populated = await Post.findById(post._id).populate('user', 'name email');
-    res.status(201).json(populated);
+    // populate user for immediate frontend display
+    await post.populate('user', 'name email');
+    res.status(201).json(post);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Get all posts (public)
-router.get('/', async (req, res) => {
+// Get posts (optionally filter by user)
+router.get('/', auth, async (req, res) => {
   try {
-    const posts = await Post.find()
-      .populate('user', 'name email')
+    const { user } = req.query;
+    const query = user ? { user } : {};
+    const posts = await Post.find(query)
+      .populate('user', 'name')
       .populate('comments.user', 'name')
       .sort({ createdAt: -1 });
     res.json(posts);
@@ -39,13 +36,17 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get single post by id (public)
-router.get('/:id', async (req, res) => {
+// Edit a post (only by owner)
+router.put('/:id', auth, async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id)
-      .populate('user', 'name email')
-      .populate('comments.user', 'name');
+    const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: 'Post not found' });
+    if (!post.user.equals(req.user._id)) return res.status(403).json({ message: 'Not authorized' });
+
+    post.text = req.body.text ?? post.text;
+    post.imageUrl = req.body.imageUrl ?? post.imageUrl;
+    await post.save();
+    await post.populate('user', 'name');
     res.json(post);
   } catch (err) {
     console.error(err);
@@ -53,99 +54,45 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Get posts by user id (public)
-router.get('/user/:userId', async (req, res) => {
-  try {
-    const posts = await Post.find({ user: req.params.userId })
-      .populate('user', 'name email')
-      .populate('comments.user', 'name')
-      .sort({ createdAt: -1 });
-    res.json(posts);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Get current user's posts (protected)
-router.get('/me', auth, async (req, res) => {
-  try {
-    const posts = await Post.find({ user: req.user._id })
-      .populate('user', 'name email')
-      .populate('comments.user', 'name')
-      .sort({ createdAt: -1 });
-    res.json(posts);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Update a post (only owner)
-router.put('/:id', auth, async (req, res) => {
-  try {
-    const { text, imageUrl } = req.body;
-    const post = await Post.findById(req.params.id);
-    if (!post) return res.status(404).json({ message: 'Post not found' });
-    if (post.user.toString() !== req.user._id.toString())
-      return res.status(403).json({ message: 'Not authorized' });
-
-    if (typeof text !== 'undefined') post.text = text;
-    if (typeof imageUrl !== 'undefined') post.imageUrl = imageUrl;
-    await post.save();
-    const populated = await Post.findById(post._id).populate('user', 'name email');
-    res.json(populated);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Delete a post (only owner)
+// Delete a post (only by owner)
 router.delete('/:id', auth, async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: 'Post not found' });
-    if (post.user.toString() !== req.user._id.toString())
-      return res.status(403).json({ message: 'Not authorized' });
+    if (!post.user.equals(req.user._id)) return res.status(403).json({ message: 'Not authorized' });
 
-    await post.remove();
-    res.json({ message: 'Post removed' });
+    await Post.deleteOne({ _id: post._id });
+
+    res.json({ message: 'Post deleted' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Toggle like/unlike (protected)
-router.put('/like/:id', auth, async (req, res) => {
+// Like / Unlike a post (toggle)
+router.post('/:id/like', auth, async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: 'Post not found' });
 
-    const alreadyLiked = post.likes.some(
-      (uid) => uid.toString() === req.user._id.toString()
-    );
-
-    if (alreadyLiked) {
-      post.likes = post.likes.filter((uid) => uid.toString() !== req.user._id.toString());
-    } else {
+    const idx = post.likes.findIndex(u => u.equals(req.user._id));
+    if (idx === -1) {
       post.likes.push(req.user._id);
+    } else {
+      post.likes.splice(idx, 1);
     }
-
     await post.save();
-    const populated = await Post.findById(post._id)
-      .populate('user', 'name email')
-      .populate('comments.user', 'name');
-    res.json(populated);
+    await post.populate('user', 'name');
+    res.json(post);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Add a comment (protected)
-router.post('/comment/:id', auth, async (req, res) => {
+// Add a comment
+router.post('/:id/comment', auth, async (req, res) => {
   try {
     const { text } = req.body;
     if (!text) return res.status(400).json({ message: 'Comment text required' });
@@ -153,16 +100,10 @@ router.post('/comment/:id', auth, async (req, res) => {
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: 'Post not found' });
 
-    post.comments.unshift({
-      user: req.user._id,
-      text,
-    });
-
+    post.comments.push({ user: req.user._id, text });
     await post.save();
-    const populated = await Post.findById(post._id)
-      .populate('user', 'name email')
-      .populate('comments.user', 'name');
-    res.json(populated);
+    await post.populate('comments.user', 'name');
+    res.status(201).json(post);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

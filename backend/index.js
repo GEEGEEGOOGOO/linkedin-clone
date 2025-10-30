@@ -24,9 +24,11 @@ mongoose
 // Require routers (ensure these files exist)
 const authRouter = require('./routes/auth'); // your existing auth router
 const postsRouter = require('./routes/posts');
+const usersRouter = require('./routes/users');
 
 app.use('/api/auth', authRouter);
 app.use('/api/posts', postsRouter);
+app.use('/api/users', usersRouter);
 
 // Basic health route
 app.get('/', (req, res) => res.send('API running'));

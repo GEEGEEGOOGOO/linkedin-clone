@@ -1,33 +1,43 @@
-import { useEffect, useState } from "react";
-import api from "../utils/api";
-import CreatePost from "../components/CreatePost";
-import PostCard from "../components/PostCard";
-import { logout, getUser } from "../utils/auth";
+// frontend/src/pages/Feed.jsx
+import React, { useEffect, useState } from 'react';
+import api from '../api';
+import CreatePost from '../components/CreatePost';
+import PostCard from '../components/PostCard';
 
-function Feed() {
+export default function Feed() {
   const [posts, setPosts] = useState([]);
-  const user = getUser();
-
-  const loadPosts = async () => {
-    const res = await api.get("/api/posts");
-    setPosts(res.data);
+  const fetchPosts = async () => {
+    try {
+      const res = await api.get('/posts');
+      setPosts(res.data);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to load posts');
+    }
   };
 
-  useEffect(() => {
-    loadPosts();
-  }, []);
+  useEffect(() => { fetchPosts(); }, []);
+
+  const handlePosted = (newPost) => {
+    setPosts(prev => [newPost, ...prev]);
+  };
+
+  const handleUpdate = (updatedPost) => {
+    setPosts(prev => prev.map(p => (p._id === updatedPost._id ? updatedPost : p)));
+  };
+
+  const handleDelete = (id) => {
+    setPosts(prev => prev.filter(p => p._id !== id));
+  };
 
   return (
-    <div style={{ maxWidth: 600, margin: "20px auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <h3>Welcome, {user?.name}</h3>
-        <button onClick={logout}>Logout</button>
+    <div>
+      <CreatePost onPosted={handlePosted} />
+      <div style={{ marginTop: 12 }}>
+        {posts.map(p => (
+          <PostCard key={p._id} post={p} onUpdate={handleUpdate} onDelete={handleDelete} />
+        ))}
       </div>
-      <CreatePost onPostCreated={loadPosts} />
-      {posts.map((p) => (
-        <PostCard key={p._id} post={p} />
-      ))}
     </div>
   );
 }
-export default Feed;
